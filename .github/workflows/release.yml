@@ -1,0 +1,70 @@
+name: Build release distribution
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Zig
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $index = Invoke-RestMethod 'https://ziglang.org/download/index.json'
+          $download = $index.'0.15.2'.'x86_64-windows'
+          if (-not $download) { throw 'Zig 0.15.2 Windows download not found.' }
+          $archive = Join-Path $env:RUNNER_TEMP 'zig.zip'
+          Invoke-WebRequest $download.tarball -OutFile $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash
+          if ($hash -ne $download.shasum) { throw 'Zig archive checksum mismatch.' }
+          $destination = Join-Path $env:RUNNER_TEMP 'zig'
+          Expand-Archive -LiteralPath $archive -DestinationPath $destination
+          $compiler = Get-ChildItem $destination -Filter zig.exe -Recurse
+          if (@($compiler).Count -ne 1) { throw 'Expected exactly one Zig compiler.' }
+          $compiler.DirectoryName | Out-File $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Build distribution
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if ($env:RELEASE_TAG) {
+            $version = $env:RELEASE_TAG -creplace '^v', ''
+            .\build.ps1 -Version $version
+          } else {
+            .\build.ps1
+          }
+
+      - name: Upload distribution artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-dist
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Attach distribution to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          $assets = @(Get-ChildItem dist -File | Where-Object {
+            $_.Extension -eq '.zip' -or $_.Name -eq 'SHA256SUMS.txt'
+          } | ForEach-Object { $_.FullName })
+          gh release upload $env:RELEASE_TAG @assets --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Release upload failed: $LASTEXITCODE" }
