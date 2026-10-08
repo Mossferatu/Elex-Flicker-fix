@@ -127,9 +127,10 @@ synchronization workarounds failed. Those experiments are not part of this mod.
 
 ## Build from source
 
-An [experimental DXVK port](dxvk/README.md) is also preserved for investigation.
-It **did not resolve flickering in normal DXVK gameplay** and is not an
-alternative release of this native fix.
+A separate [DXVK version](dxvk/README.md) is available for Vulkan users.
+The player reported a successful retest on 2026-10-08 after earlier inconsistent
+results. It is packaged separately and must not be installed together with the
+native fix, since both supply `d3d11.dll`.
 
 Use Windows PowerShell and [Zig](https://ziglang.org/download/).
 The verified toolchain was official **Zig 0.17.0**, targeting
@@ -168,7 +169,12 @@ Create and publish a GitHub release with a version tag such as **`v0.1.0`**
 hyphenated prerelease identifier such as `v0.2.0-beta.1`.
 The **Build release distribution** workflow builds on Windows using pinned
 **Zig 0.15.2**, verifies the compiler download's SHA256, and attaches the
-versioned ZIP and `SHA256SUMS.txt` to that release. Wait for the workflow to
+native ZIP and `SHA256SUMS.txt` to that release. It also builds pinned DXVK
+**3.1.1** from source with the cloud-barrier patch, using checksum-verified
+LLVM-MinGW **20261006**, glslang **16.6.0**, Meson **1.12.1** and Ninja **1.13.2**.
+The additional `ELEX-Cloud-Flicker-Fix-DXVK-<version>.zip` contains both x64
+DXVK DLLs, configuration, patch and license notices; `DXVK-SHA256SUMS.txt`
+provides its DLL and ZIP hashes. Wait for the workflow to
 finish before downloading the attachments; draft releases do not trigger it.
 
 You can also run the workflow manually from the Actions tab to download a
@@ -180,6 +186,9 @@ The hosted build does not run the smoke tests: they require a functioning
 D3D11 hardware device, which hosted runners do not guarantee. Run
 `.\build.ps1 -RunTests` on a suitable Windows machine before publishing;
 successful CI packaging is not confirmation that the in-game fix works.
+DXVK builds likewise require local Vulkan/gameplay testing; no private game
+shaders are uploaded to or required by CI. Both distributions use the same
+release tag version and are included in the manual `release-dist` artifact.
 
 ### Optional private shader regression test
 
