@@ -161,6 +161,26 @@ ZIP and checksum file as release attachments rather than committing binaries
 or debug symbols to the source history. Do not run build scripts in an
 installed game's `system` directory.
 
+### Automated releases
+
+Create and publish a GitHub release with a version tag such as **`v0.1.0`**
+(or `0.1.0`). Tags must use `major.minor.patch`, optionally followed by a
+hyphenated prerelease identifier such as `v0.2.0-beta.1`.
+The **Build release distribution** workflow builds on Windows using pinned
+**Zig 0.15.2**, verifies the compiler download's SHA256, and attaches the
+versioned ZIP and `SHA256SUMS.txt` to that release. Wait for the workflow to
+finish before downloading the attachments; draft releases do not trigger it.
+
+You can also run the workflow manually from the Actions tab to download a
+`release-dist` artifact without publishing a release. Manual builds use the
+default package version, `0.1.0`. Locally, use `.\build.ps1 -Version 0.2.0`
+to change the package version.
+
+The hosted build does not run the smoke tests: they require a functioning
+D3D11 hardware device, which hosted runners do not guarantee. Run
+`.\build.ps1 -RunTests` on a suitable Windows machine before publishing;
+successful CI packaging is not confirmation that the in-game fix works.
+
 ### Optional private shader regression test
 
 The public test explicitly skips target-shader tests unless private shader

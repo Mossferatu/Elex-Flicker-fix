@@ -3,7 +3,9 @@ param(
     [string]$Zig = 'zig',
     [switch]$RunTests,
     [string]$OriginalShader,
-    [string]$CorrectedShader
+    [string]$CorrectedShader,
+    [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$')]
+    [string]$Version = '0.1.0'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -22,12 +24,13 @@ if ($OriginalShader) {
 Push-Location $PSScriptRoot
 try {
     New-Item -ItemType Directory -Path 'build', 'build\package\system', 'dist' -Force | Out-Null
-    & $compiler cc -target x86_64-windows-gnu -std=c11 -Wall -Wextra -Werror -O2 -s `
+    # GetProcAddress returns FARPROC; typed Windows API casts are intentional.
+    & $compiler cc -target x86_64-windows-gnu -std=c11 -Wall -Wextra -Werror -Wno-cast-function-type-mismatch -O2 -s `
         -shared src\d3d11.c src\patch.c src\d3d11.def -o build\d3d11.dll -lbcrypt -luser32
     if ($LASTEXITCODE -ne 0) { throw "DLL compilation failed: $LASTEXITCODE" }
 
     if ($RunTests) {
-        & $compiler cc -target x86_64-windows-gnu -std=c11 -Wall -Wextra -Werror -O2 -s `
+        & $compiler cc -target x86_64-windows-gnu -std=c11 -Wall -Wextra -Werror -Wno-cast-function-type-mismatch -O2 -s `
             -Isrc tests\smoke.c src\patch.c -o build\smoke.exe -lbcrypt -luser32
         if ($LASTEXITCODE -ne 0) { throw "Smoke test compilation failed: $LASTEXITCODE" }
         Push-Location 'build'
@@ -45,14 +48,15 @@ try {
 
     Copy-Item -LiteralPath 'build\d3d11.dll' -Destination 'build\package\system\d3d11.dll'
     Copy-Item -LiteralPath 'README.md', 'LICENSE' -Destination 'build\package'
-    $archive = 'dist\ELEX-Cloud-Flicker-Fix-0.1.0.zip'
+    $archiveName = "ELEX-Cloud-Flicker-Fix-$Version.zip"
+    $archive = Join-Path 'dist' $archiveName
     Compress-Archive -LiteralPath 'build\package\system', 'build\package\README.md', `
         'build\package\LICENSE' -DestinationPath $archive -Force
     $dllHash = (Get-FileHash -LiteralPath 'build\d3d11.dll' -Algorithm SHA256).Hash.ToLowerInvariant()
     $zipHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
     @(
         "$dllHash  system/d3d11.dll"
-        "$zipHash  ELEX-Cloud-Flicker-Fix-0.1.0.zip"
+        "$zipHash  $archiveName"
     ) | Set-Content -LiteralPath 'dist\SHA256SUMS.txt' -Encoding ASCII
     Write-Output "Built $archive and dist\SHA256SUMS.txt"
 } finally {
