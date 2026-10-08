@@ -127,6 +127,10 @@ synchronization workarounds failed. Those experiments are not part of this mod.
 
 ## Build from source
 
+An [experimental DXVK port](dxvk/README.md) is also preserved for investigation.
+It **did not resolve flickering in normal DXVK gameplay** and is not an
+alternative release of this native fix.
+
 Use Windows PowerShell and [Zig](https://ziglang.org/download/).
 The verified toolchain was official **Zig 0.17.0**, targeting
 `x86_64-windows-gnu`. Other versions may work but are not verified.

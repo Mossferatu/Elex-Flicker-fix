@@ -1,0 +1,98 @@
+diff --git a/src/d3d11/d3d11_device.cpp b/src/d3d11/d3d11_device.cpp
+index 97df7a0..d7a0af2 100644
+--- a/src/d3d11/d3d11_device.cpp
++++ b/src/d3d11/d3d11_device.cpp
+@@ -24,6 +24,7 @@
+ #include "d3d11_resource.h"
+ #include "d3d11_sampler.h"
+ #include "d3d11_shader.h"
++#include "d3d11_shader_patch.h"
+ #include "d3d11_state_object.h"
+ #include "d3d11_swapchain.h"
+ #include "d3d11_texture.h"
+@@ -999,6 +1000,19 @@ namespace dxvk {
+           ID3D11ComputeShader**       ppComputeShader) {
+     InitReturnPtr(ppComputeShader);
+     D3D11CommonShader module;
++
++    std::vector<uint8_t> patched;
++    try {
++      patched = patchElexCloudShader(pShaderBytecode, BytecodeLength);
++    } catch (const DxvkError& e) {
++      Logger::err(e.message());
++      return E_INVALIDARG;
++    }
++
++    if (!patched.empty()) {
++      pShaderBytecode = patched.data();
++      Logger::info("D3D11: Applied ELEX cloud reduction barrier fix (sync_g -> sync_g_t)");
++    }
+     
+     DxvkIrShaderCreateInfo moduleInfo = { };
+     moduleInfo.options = m_shaderOptions;
+diff --git a/src/d3d11/d3d11_shader_patch.h b/src/d3d11/d3d11_shader_patch.h
+new file mode 100644
+index 0000000..cb321c8
+--- /dev/null
++++ b/src/d3d11/d3d11_shader_patch.h
+@@ -0,0 +1,60 @@
++#pragma once
++
++#include <cstdint>
++#include <cstring>
++#include <vector>
++
++#include "../util/sha1/sha1_util.h"
++#include "../util/util_error.h"
++
++namespace dxvk {
++
++  inline std::vector<uint8_t> patchElexCloudShader(const void* data, size_t size) {
++    constexpr std::array<uint8_t, 16> originalChecksum = {
++      0x0e, 0xe3, 0x78, 0xa9, 0x37, 0xd4, 0xb0, 0xaf,
++      0xf9, 0x6a, 0xa1, 0x31, 0x7f, 0x12, 0x43, 0x3a,
++    };
++    constexpr std::array<uint8_t, 16> correctedChecksum = {
++      0x99, 0xc0, 0x9a, 0xe6, 0x6c, 0x92, 0xa6, 0xff,
++      0x58, 0xb0, 0x86, 0xd9, 0x02, 0xbc, 0xeb, 0x5d,
++    };
++    const Sha1Hash originalHash(Sha1Digest {
++      0xea, 0xe4, 0xc5, 0x64, 0x63, 0xaa, 0x7f, 0x58, 0xcc, 0x35,
++      0xb2, 0xfb, 0x42, 0xc0, 0x3d, 0x2b, 0x91, 0xda, 0x28, 0x1e,
++    });
++    const Sha1Hash correctedHash(Sha1Digest {
++      0xa8, 0x41, 0x6e, 0x3f, 0x58, 0xdf, 0xce, 0x23, 0x76, 0x5b,
++      0xa6, 0x73, 0x29, 0xd7, 0x6c, 0x1e, 0xb3, 0x6f, 0x5a, 0x10,
++    });
++
++    auto source = static_cast<const uint8_t*>(data);
++    if (!source || size < 20u || std::memcmp(source, "DXBC", 4u)
++     || std::memcmp(source + 4u, originalChecksum.data(), originalChecksum.size()))
++      return {};
++
++    if (size != 11904u || Sha1Hash::compute(source, size) != originalHash)
++      throw DxvkError("D3D11: ELEX cloud shader fingerprint mismatch");
++
++    uint32_t before, token, after;
++    std::memcpy(&before, source + 11316u, sizeof(before));
++    std::memcpy(&token, source + 11576u, sizeof(token));
++    std::memcpy(&after, source + 11612u, sizeof(after));
++    if (before != 0x010018beu || token != 0x010010beu || after != 0x010018beu)
++      throw DxvkError("D3D11: ELEX cloud shader barrier layout mismatch");
++
++    // The 256-thread cloud reduction requires an execution barrier in each
++    // iteration. Keep its math intact and only promote sync_g to sync_g_t.
++    std::vector<uint8_t> patched(source, source + size);
++    token |= 0x800u;
++    std::memcpy(patched.data() + 11576u, &token, sizeof(token));
++
++    // A full-input fingerprint gates this precomputed DXBC checksum. Updating
++    // it before ComputeShaderKey also separates corrected and original caches.
++    std::memcpy(patched.data() + 4u, correctedChecksum.data(), correctedChecksum.size());
++    if (Sha1Hash::compute(patched.data(), patched.size()) != correctedHash)
++      throw DxvkError("D3D11: ELEX corrected cloud shader fingerprint mismatch");
++
++    return patched;
++  }
++
++}
